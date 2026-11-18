@@ -169,10 +169,11 @@ notifications=[]
 #Constants
 G=1
 paused=True
+dt=0
 running=True
 
 async def main():
-    global paused, running, holding, vector_holding, velocity_mode, planets
+    global paused, running, holding, vector_holding, velocity_mode, planets, dt
     while running:
         #Input
         dt=clock.tick(60)/1000
@@ -213,10 +214,11 @@ async def main():
                 else:
                     planet_spawner.active=False
                 if planet_spawner.button_rect.collidepoint(mouse_pos):
-                    if int(planet_spawner.text)<=1000000 and int(planet_spawner.text)>0:
+                    text=planet_spawner.text
+                    if text.isdigit() and 0< int(planet_spawner.text)<=1000000:
                         planets.append(Planet(int(planet_spawner.text)))
                     else:
-                        notifications.append(Notification("Too big. Maximum planet mass is 7000 tonnes."))
+                        notifications.append(Notification("Enter a mass between 1 and 1,000,000 tonnes."))
                         planet_spawner.text=''
             for planet in planets:
                 if not velocity_mode:
