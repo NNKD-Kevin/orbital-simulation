@@ -13,7 +13,7 @@ def draw_text(text,font,color,x,y):
     screen.blit(img, (x, y))
 screen = pygame.display.set_mode((1500, 850))
 is_fullscreen=False
-pygame.display.set_caption("Shooting Star")
+pygame.display.set_caption("Orbital Simulation")
 clock=pygame.time.Clock()
 
 
@@ -37,18 +37,40 @@ def gravity_at(p):
     a=pygame.Vector2(0,0)
     for planet in planets:
         d=planet.pos-p
-        distance=d.length()
+        distance=d.length()**2+25*2
         if distance!=0:
-            strength=G*planet.mass*1000/(distance**2)
+            strength=G*planet.mass*1000/distance
             a+=d/distance*strength
     return a
+def resolve_collisions():
+    n = len(planets)
+    for i in range(n):
+        for j in range(i + 1, n):
+            p1 = planets[i]
+            p2 = planets[j]
+            d = p2.pos - p1.pos
+            dist = d.length()
+            min_dist = p1.radius + p2.radius
+            if dist < min_dist and dist > 0:
+                normal = d / dist
+                overlap = min_dist - dist
+                total = p1.mass + p2.mass
+                # Push apart so surfaces just touch; lighter body moves more
+                p1.pos -= normal * overlap * (p2.mass / total)
+                p2.pos += normal * overlap * (p1.mass / total)\
+                # Perfectly inelastic (sticking) collision along normal
+                rel = (p2.velocity - p1.velocity).dot(normal)
+                if rel < 0:  # only when approaching
+                    impulse = -rel / (1 / p1.mass + 1 / p2.mass)
+                    p1.velocity -= normal * impulse / p1.mass
+                    p2.velocity += normal * impulse / p2.mass
 class Planet:
     def __init__(self,mass):        
         self.pos=pygame.Vector2(random.randint(200,400), random.randint(200,400))
         self.velocity=pygame.Vector2(0,0)
         self.mass=mass
         self.color=(random.randint(10,50),random.randint(10,50),random.randint(10,50))
-        self.radius=(mass/1000)**3
+        self.radius=4*mass**(1/3)
         if self.radius<10:
             self.radius=10
         self.tail_steps=20
@@ -58,12 +80,12 @@ class Planet:
         for i in range(self.tail_steps):
             t=i/self.tail_steps
             pos=start+(end-start)*t
-            radius=self.radius*(1-t)*1.6+2
-            glow=get_glow(self.glow_cache,self.color,radius*1.5)
+            radius=self.radius*(1-t)
+            glow=get_glow(self.glow_cache,self.color,radius)
             rect = glow.get_rect(center=pos)
             screen.blit(glow, rect, special_flags=pygame.BLEND_RGBA_ADD)
         if not paused:
-            self.velocity+=gravity_at(self.pos)/self.mass
+            self.velocity+=gravity_at(self.pos)*dt
             self.pos+=self.velocity*dt
 class InputBox:
     def __init__(self,x,y):
@@ -105,6 +127,7 @@ class Notification:
         self.y-=5
 
 planet_spawner=InputBox(10,50)
+delete_box=pygame.Rect(1300,120,100,100)
 holding=None
 #List
 stars=[]
@@ -113,7 +136,7 @@ for i in range(random.randint(50,100)):
         stars.append((random.randint(0,1500),random.randint(0,850),random.randint(1,2),(random.randint(125,255),random.randint(125,255),random.randint(125,255))))
 notifications=[]
 #Constants
-G=1000
+G=5000
 paused=True
 running=True
 while running:
@@ -138,7 +161,7 @@ while running:
                     planet_spawner.text=planet_spawner.text[:-1]
                 else:
                     if event.key in [pygame.K_0,pygame.K_1,pygame.K_2,pygame.K_3,pygame.K_4,pygame.K_5,pygame.K_6,pygame.K_7,pygame.K_8,pygame.K_9]:
-                        if len(planet_spawner.text)<4:
+                        if len(planet_spawner.text)<6:
                             planet_spawner.text+=event.unicode
 
         mouse_pos=pygame.Vector2(pygame.mouse.get_pos())
@@ -152,21 +175,25 @@ while running:
             else:
                 planet_spawner.active=False
             if planet_spawner.button_rect.collidepoint(mouse_pos):
-                if int(planet_spawner.text)<=5000 and int(planet_spawner.text)>0:
+                if int(planet_spawner.text)<=1000000 and int(planet_spawner.text)>0:
                     planets.append(Planet(int(planet_spawner.text)))
                 else:
-                    notifications.append(Notification("Too big. Maximum planet mass is 5000 tonnes."))
+                    notifications.append(Notification("Too big. Maximum planet mass is 7000 tonnes."))
                     planet_spawner.text=''
         for planet in planets:
             if event.type==pygame.MOUSEBUTTONDOWN and event.button==1:
                 if planet.pos.distance_to(mouse_pos)<planet.radius:
                     planet.dragged=True
                     holding=planet
+                    planet.velocity=pygame.Vector2(0,0)
             elif event.type==pygame.MOUSEBUTTONUP and event.button==1:
                 planet.dragged=False
                 holding=None
             elif event.type==pygame.MOUSEMOTION and holding:
                 holding.pos=mouse_pos
+                if delete_box.collidepoint(event.pos):
+                    planets.remove(holding)
+                    holding=None
 
 
 
@@ -174,8 +201,15 @@ while running:
     screen.fill((8,8,24))
     for x,y,r,color in stars:
         pygame.draw.circle(screen,color,(x,y),r)
+    if holding:
+        draw_text(f"Drag here to delete",font,(255,0,0),delete_box.x-30,delete_box.y-50)
+        pygame.draw.rect(screen,(255,0,0),delete_box,3)
     for planet in planets:
         planet.draw(screen,planet.pos,planet.pos,dt)
+        if planet.pos.x>1500 or planet.pos.x<0 or planet.pos.y>850 or planet.pos.y<0:
+            planets.remove(planet)
+            pass
+    resolve_collisions()
     draw_text(f"Create a planet:",font,(0,255,255),10,10)
     draw_text(f"Paused: {paused}",font,(0,255,255),700,20)
     planet_spawner.draw(screen)
