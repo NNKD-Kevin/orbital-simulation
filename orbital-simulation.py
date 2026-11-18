@@ -37,7 +37,7 @@ def gravity_at(p):
     a=pygame.Vector2(0,0)
     for planet in planets:
         d=planet.pos-p
-        distance=d.length()**2+25*2
+        distance=d.length()**2+5**2
         if distance!=0:
             strength=G*planet.mass*1000/distance
             a+=d/distance*strength
@@ -57,13 +57,11 @@ def resolve_collisions():
                 total = p1.mass + p2.mass
                 # Push apart so surfaces just touch; lighter body moves more
                 p1.pos -= normal * overlap * (p2.mass / total)
-                p2.pos += normal * overlap * (p1.mass / total)\
+                p2.pos += normal * overlap * (p1.mass / total)
                 # Perfectly inelastic (sticking) collision along normal
-                rel = (p2.velocity - p1.velocity).dot(normal)
-                if rel < 0:  # only when approaching
-                    impulse = -rel / (1 / p1.mass + 1 / p2.mass)
-                    p1.velocity -= normal * impulse / p1.mass
-                    p2.velocity += normal * impulse / p2.mass
+                v_cm = (p1.velocity * p1.mass + p2.velocity * p2.mass) / total
+                p1.velocity = pygame.Vector2(v_cm)
+                p2.velocity = pygame.Vector2(v_cm)
 class Planet:
     def __init__(self,mass):        
         self.pos=pygame.Vector2(random.randint(200,400), random.randint(200,400))
@@ -76,6 +74,8 @@ class Planet:
         self.tail_steps=20
         self.glow_cache={}
         self.dragged=False
+        self.velocity_dragged=False
+        self.arrow_endpoint=self.pos
     def draw(self,screen,start,end,dt):
         for i in range(self.tail_steps):
             t=i/self.tail_steps
@@ -84,9 +84,26 @@ class Planet:
             glow=get_glow(self.glow_cache,self.color,radius)
             rect = glow.get_rect(center=pos)
             screen.blit(glow, rect, special_flags=pygame.BLEND_RGBA_ADD)
+
+    def update(self):
         if not paused:
             self.velocity+=gravity_at(self.pos)*dt
             self.pos+=self.velocity*dt
+    def draw_arrow(self,surface):
+        width=4
+        head_len=18
+        head_width=14
+        color=(255,0,0)
+        end=self.pos+self.velocity
+        d = end - self.pos
+        if d.length() == 0:
+            return
+        direction = d.normalize()
+        head_len = min(head_len, d.length())           
+        base = end - direction * head_len               
+        perp = pygame.Vector2(-direction.y, direction.x) * head_width / 2
+        pygame.draw.line(surface, color, self.pos, base, width)
+        pygame.draw.polygon(surface, color, [end, base + perp, base - perp])
 class InputBox:
     def __init__(self,x,y):
         self.x=x
@@ -128,7 +145,10 @@ class Notification:
 
 planet_spawner=InputBox(10,50)
 delete_box=pygame.Rect(1300,120,100,100)
+clean_box=pygame.Rect(1300,270,100,100)
 holding=None
+vector_holding=None
+velocity_mode=False
 #List
 stars=[]
 planets=[]
@@ -145,6 +165,10 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        if event.type==pygame.KEYDOWN and event.key==pygame.K_LSHIFT:
+            velocity_mode=True
+        elif event.type==pygame.KEYUP and event.key==pygame.K_LSHIFT:
+            velocity_mode=False
         if event.type==pygame.KEYDOWN:
             if event.key==pygame.K_f:
                 is_fullscreen= not is_fullscreen
@@ -154,6 +178,8 @@ while running:
                     screen = pygame.display.set_mode((1500, 850))
             if event.key==pygame.K_SPACE:
                 paused=not paused
+            if event.key==pygame.K_q:
+                planets=[]
             if planet_spawner.active:
                 if event.key==pygame.K_RETURN:
                     planet_spawner.registered=True
@@ -181,19 +207,32 @@ while running:
                     notifications.append(Notification("Too big. Maximum planet mass is 7000 tonnes."))
                     planet_spawner.text=''
         for planet in planets:
-            if event.type==pygame.MOUSEBUTTONDOWN and event.button==1:
-                if planet.pos.distance_to(mouse_pos)<planet.radius:
-                    planet.dragged=True
-                    holding=planet
-                    planet.velocity=pygame.Vector2(0,0)
-            elif event.type==pygame.MOUSEBUTTONUP and event.button==1:
-                planet.dragged=False
-                holding=None
-            elif event.type==pygame.MOUSEMOTION and holding:
-                holding.pos=mouse_pos
-                if delete_box.collidepoint(event.pos):
-                    planets.remove(holding)
+            if not velocity_mode:
+                if event.type==pygame.MOUSEBUTTONDOWN and event.button==1:
+                    if planet.pos.distance_to(mouse_pos)<planet.radius:
+                        planet.dragged=True
+                        holding=planet
+                elif event.type==pygame.MOUSEBUTTONUP and event.button==1:
+                    planet.dragged=False
                     holding=None
+                elif event.type==pygame.MOUSEMOTION and holding:
+                    holding.pos=mouse_pos
+                    if delete_box.collidepoint(event.pos):
+                        planets.remove(holding)
+                        holding=None
+                    if clean_box.collidepoint(event.pos):
+                        holding.velocity=pygame.Vector2(0,0)
+            else:
+                if event.type==pygame.MOUSEBUTTONDOWN and event.button==1:
+                    if planet.pos.distance_to(mouse_pos)<planet.radius:
+                        planet.velocity_dragged=True
+                        vector_holding=planet
+                elif event.type==pygame.MOUSEBUTTONUP and event.button==1:
+                    planet.velocity_dragged=False
+                    vector_holding=None
+                elif event.type==pygame.MOUSEMOTION and vector_holding:
+                    vector_holding.velocity=(mouse_pos-planet.pos)
+
 
 
 
@@ -204,11 +243,13 @@ while running:
     if holding:
         draw_text(f"Drag here to delete",font,(255,0,0),delete_box.x-30,delete_box.y-50)
         pygame.draw.rect(screen,(255,0,0),delete_box,3)
+        draw_text(f"Drag here to remove velocity",font,(0,255,0),clean_box.x-150,clean_box.y-50)
+        pygame.draw.rect(screen,(0,255,0),clean_box,3)
     for planet in planets:
         planet.draw(screen,planet.pos,planet.pos,dt)
-        if planet.pos.x>1500 or planet.pos.x<0 or planet.pos.y>850 or planet.pos.y<0:
-            planets.remove(planet)
-            pass
+        planet.update()
+        if paused:
+            planet.draw_arrow(screen)
     resolve_collisions()
     draw_text(f"Create a planet:",font,(0,255,255),10,10)
     draw_text(f"Paused: {paused}",font,(0,255,255),700,20)
