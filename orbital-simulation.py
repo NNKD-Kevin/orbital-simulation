@@ -37,12 +37,13 @@ def gravity_at(p):
     a=pygame.Vector2(0,0)
     for planet in planets:
         d=planet.pos-p
-        distance=d.length()**2+5**2
-        if distance!=0:
+        distance=d.length_squared()+5**2
+        if distance!=5**2:
             strength=G*planet.mass*1000/distance
-            a+=d/distance*strength
+            a+=d.normalize()*strength
     return a
 def resolve_collisions():
+    
     n = len(planets)
     for i in range(n):
         for j in range(i + 1, n):
@@ -62,6 +63,14 @@ def resolve_collisions():
                 v_cm = (p1.velocity * p1.mass + p2.velocity * p2.mass) / total
                 p1.velocity = pygame.Vector2(v_cm)
                 p2.velocity = pygame.Vector2(v_cm)
+def set_circular_orbit(body,center):
+    d=body.pos-center.pos
+    r=d.length()
+    if r==0:
+        return
+    v=math.sqrt(G*center.mass*1000/r)
+    tangent=pygame.Vector2(-d.y,d.x).normalize()
+    body.velocity=center.velocity+tangent*v
 class Planet:
     def __init__(self,mass):        
         self.pos=pygame.Vector2(random.randint(200,400), random.randint(200,400))
@@ -156,7 +165,7 @@ for i in range(random.randint(50,100)):
         stars.append((random.randint(0,1500),random.randint(0,850),random.randint(1,2),(random.randint(125,255),random.randint(125,255),random.randint(125,255))))
 notifications=[]
 #Constants
-G=5000
+G=1
 paused=True
 running=True
 while running:
@@ -178,6 +187,9 @@ while running:
                     screen = pygame.display.set_mode((1500, 850))
             if event.key==pygame.K_SPACE:
                 paused=not paused
+            if event.key==pygame.K_o and holding:
+                center=max(planets,key=lambda x:x.mass)
+                set_circular_orbit(holding,center)
             if event.key==pygame.K_q:
                 planets=[]
             if planet_spawner.active:
